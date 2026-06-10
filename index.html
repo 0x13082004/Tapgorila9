@@ -395,55 +395,405 @@
       white-space: nowrap;
     }
 
-    .layout-ledger .topbar { grid-template-columns: minmax(0, 1fr) minmax(116px, auto); }
-    .layout-desk .gamePanel { grid-template-columns: 220px minmax(0, 1fr); grid-template-rows: minmax(0, 1fr); }
-    .layout-desk .hud { grid-template-columns: 1fr; align-content: start; }
-    .layout-ceramic .tapSurface { border-radius: 999px; width: min(92vw, 560px); justify-self: center; aspect-ratio: 1; min-height: 0; }
+    #app { grid-template-areas: "topbar" "stage" "nav"; }
+    .topbar { grid-area: topbar; }
+    .stage { grid-area: stage; }
+    .navRail { grid-area: nav; }
+
+    #app.layout-ledger {
+      max-width: 1320px;
+      margin: 0 auto;
+      grid-template-columns: 250px minmax(0, 1fr);
+      grid-template-rows: minmax(0, 1fr) auto;
+      grid-template-areas: "topbar stage" "nav stage";
+    }
+    .layout-ledger .topbar { grid-template-columns: 1fr; align-content: start; align-items: start; }
+    .layout-ledger .walletBtn { width: 100%; max-width: none; }
+    .layout-ledger .navRail { grid-template-columns: 1fr; align-content: end; }
+    .layout-ledger .gamePanel { grid-template-columns: 180px minmax(0, 1fr); grid-template-rows: minmax(0, 1fr); }
+    .layout-ledger .hud { grid-template-columns: 1fr; align-content: start; }
+    .layout-ledger .tapSurface { min-height: calc(100dvh - 62px); }
+    .layout-ledger .tapAsset { width: min(28vw, 210px); }
+
+    #app.layout-desk {
+      grid-template-columns: minmax(0, 1fr) 180px;
+      grid-template-rows: auto minmax(0, 1fr);
+      grid-template-areas: "topbar nav" "stage nav";
+    }
+    .layout-desk .navRail { grid-template-columns: 1fr; align-content: center; }
+    .layout-desk .gamePanel { grid-template-columns: minmax(0, 1fr) 230px; grid-template-rows: minmax(0, 1fr); }
+    .layout-desk .tapSurface { order: 1; min-height: 560px; }
+    .layout-desk .hud { order: 2; grid-template-columns: 1fr; align-content: start; }
+    .layout-desk .metric { min-height: 108px; }
+
+    #app.layout-ceramic {
+      max-width: 1180px;
+      margin: 0 auto;
+      grid-template-rows: auto minmax(0, 1fr) auto;
+    }
+    .layout-ceramic .topbar { border-color: transparent; background: transparent; padding: 4px 0 0; }
+    .layout-ceramic .navRail { max-width: 620px; width: 100%; justify-self: center; }
+    .layout-ceramic .gamePanel { position: relative; display: block; min-height: min(70dvh, 650px); }
+    .layout-ceramic .tapSurface {
+      position: absolute;
+      left: 50%;
+      top: 50%;
+      transform: translate(-50%, -44%);
+      width: min(62vw, 560px);
+      aspect-ratio: 1;
+      min-height: 0;
+      border-radius: 999px;
+    }
+    .layout-ceramic .hud { position: absolute; inset: 0; display: block; pointer-events: none; }
+    .layout-ceramic .metric { position: absolute; width: 220px; pointer-events: auto; }
+    .layout-ceramic .metric:nth-child(1) { left: 8%; top: 9%; }
+    .layout-ceramic .metric:nth-child(2) { right: 8%; top: 9%; }
+    .layout-ceramic .metric:nth-child(3) { left: 50%; bottom: 4%; transform: translateX(-50%); }
+
+    #app.layout-pixel {
+      grid-template-columns: minmax(0, 1fr) 160px;
+      grid-template-rows: auto minmax(0, 1fr);
+      grid-template-areas: "topbar nav" "stage nav";
+    }
     .layout-pixel .tapSurface, .layout-pixel .metric, .layout-pixel .card, .layout-pixel .topbar, .layout-pixel .navRail { border-width: 2px; border-radius: 2px; }
-    .layout-transit .stage { border-left: 8px solid var(--accent); padding-left: 12px; }
-    .layout-blueprint .tapSurface { align-items: stretch; justify-items: stretch; }
+    .layout-pixel .navRail { grid-template-columns: 1fr; align-content: start; }
+    .layout-pixel .gamePanel { grid-template-rows: minmax(0, 1fr) auto; }
+    .layout-pixel .hud { order: 2; grid-template-columns: repeat(3, minmax(0, 1fr)); }
+    .layout-pixel .tapSurface { min-height: 560px; }
+    .layout-pixel .tapAsset { image-rendering: pixelated; width: 150px; }
+
+    #app.layout-transit {
+      grid-template-columns: 250px minmax(0, 1fr);
+      grid-template-rows: auto minmax(0, 1fr);
+      grid-template-areas: "topbar topbar" "nav stage";
+    }
+    .layout-transit .navRail { grid-template-columns: 1fr; align-content: start; border-left: 8px solid var(--accent); }
+    .layout-transit .stage { border-left: 8px solid var(--accent); padding-left: 14px; }
+    .layout-transit .gamePanel { grid-template-rows: auto minmax(0, 1fr); }
+    .layout-transit .hud { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+    .layout-transit .metric { min-height: 64px; }
+    .layout-transit .tapSurface { min-height: 560px; align-items: end; }
+    .layout-transit .tapAsset { align-self: center; }
+
+    #app.layout-blueprint {
+      grid-template-rows: auto auto minmax(0, 1fr);
+      grid-template-areas: "topbar" "nav" "stage";
+    }
+    .layout-blueprint .navRail { max-width: 540px; width: 100%; justify-self: start; }
+    .layout-blueprint .gamePanel { grid-template-columns: minmax(0, 1.45fr) minmax(220px, 0.55fr); grid-template-rows: minmax(0, 1fr); }
+    .layout-blueprint .tapSurface { grid-column: 1; grid-row: 1; min-height: 560px; align-items: stretch; justify-items: stretch; }
     .layout-blueprint .tapAsset { justify-self: center; align-self: center; }
-    .layout-orchard .hud { grid-template-columns: 1.3fr 0.85fr 0.85fr; }
+    .layout-blueprint .hud { grid-column: 2; grid-row: 1; grid-template-columns: 1fr; align-content: stretch; }
+    .layout-blueprint .metric { min-height: 0; align-content: start; }
+
+    #app.layout-orchard {
+      grid-template-rows: auto auto minmax(0, 1fr);
+      grid-template-areas: "topbar" "nav" "stage";
+    }
+    .layout-orchard .topbar, .layout-orchard .stage { max-width: 1220px; width: 100%; justify-self: center; }
+    .layout-orchard .navRail { max-width: 720px; width: 100%; justify-self: center; }
+    .layout-orchard .gamePanel { grid-template-columns: minmax(210px, 0.34fr) minmax(0, 0.66fr); grid-template-rows: minmax(0, 1fr); }
+    .layout-orchard .hud { grid-template-columns: 1fr; align-content: end; }
+    .layout-orchard .metric:first-child { min-height: 150px; }
+    .layout-orchard .tapSurface { min-height: 560px; }
+
+    #app.layout-civic {
+      grid-template-columns: 190px minmax(0, 1fr);
+      grid-template-rows: auto minmax(0, 1fr);
+      grid-template-areas: "nav topbar" "nav stage";
+    }
+    .layout-civic .navRail { grid-template-columns: 1fr; align-content: start; }
     .layout-civic .topbar { border-left: 10px solid var(--accent); }
-    .layout-pocket #app { max-width: 720px; margin: 0 auto; }
-    .layout-pocket .tapSurface { min-height: 360px; }
-    .layout-archive .gamePanel { grid-template-rows: minmax(310px, 1fr) auto; }
-    .layout-archive .hud { order: 2; }
+    .layout-civic .gamePanel { grid-template-columns: minmax(0, 1fr) 300px; grid-template-rows: minmax(0, 1fr); }
+    .layout-civic .tapSurface { order: 1; min-height: 560px; }
+    .layout-civic .hud { order: 2; grid-template-columns: 1fr; align-content: start; }
+    .layout-civic .metric { min-height: 94px; }
+
+    #app.layout-pocket {
+      max-width: 660px;
+      margin: 0 auto;
+      grid-template-rows: auto minmax(0, 1fr) auto;
+    }
+    .layout-pocket .topbar { grid-template-columns: 1fr; justify-items: center; text-align: center; }
+    .layout-pocket .walletBtn { width: 100%; max-width: 360px; }
+    .layout-pocket .gamePanel { grid-template-rows: auto minmax(390px, 1fr); }
+    .layout-pocket .hud { grid-template-columns: 1fr 1fr; }
+    .layout-pocket .metric:first-child { grid-column: 1 / -1; text-align: center; }
+    .layout-pocket .tapSurface { min-height: 390px; }
+
+    #app.layout-archive {
+      grid-template-columns: 210px minmax(0, 1fr);
+      grid-template-rows: auto minmax(0, 1fr);
+      grid-template-areas: "topbar stage" "nav stage";
+    }
+    .layout-archive .topbar { grid-template-columns: 1fr; align-content: start; }
+    .layout-archive .walletBtn { width: 100%; max-width: none; }
+    .layout-archive .navRail { grid-template-columns: 1fr; align-content: end; }
+    .layout-archive .gamePanel { grid-template-rows: minmax(0, 1fr) auto; }
+    .layout-archive .hud { order: 2; grid-template-columns: repeat(3, minmax(0, 1fr)); }
+    .layout-archive .tapSurface { min-height: 560px; }
+
+    #app.layout-circuit {
+      grid-template-rows: auto minmax(0, 1fr) auto;
+    }
+    .layout-circuit .gamePanel { grid-template-columns: minmax(0, 1fr) minmax(260px, 0.38fr); grid-template-rows: minmax(0, 1fr); }
+    .layout-circuit .tapSurface { grid-column: 1; grid-row: 1; min-height: 590px; }
+    .layout-circuit .hud { grid-column: 2; grid-row: 1; grid-template-columns: 1fr 1fr; align-content: start; }
     .layout-circuit .metric { border-left: 5px solid var(--accent); }
+    .layout-circuit .metric:first-child { grid-column: 1 / -1; }
+    .layout-circuit .navRail { width: min(100%, 560px); justify-self: end; }
+
+    #app.layout-field {
+      grid-template-columns: minmax(0, 1fr) 220px;
+      grid-template-rows: auto minmax(0, 1fr);
+      grid-template-areas: "topbar topbar" "stage nav";
+    }
+    .layout-field .navRail { grid-template-columns: 1fr; align-content: center; }
+    .layout-field .gamePanel { grid-template-columns: minmax(220px, 0.34fr) minmax(0, 0.66fr); grid-template-rows: minmax(0, 1fr); }
+    .layout-field .hud { grid-template-columns: 1fr; align-content: start; }
+    .layout-field .tapSurface { min-height: 600px; }
     .layout-field .card, .layout-field .metric { background: var(--surface); }
-    .layout-harbor .gamePanel { grid-template-columns: minmax(0, 1fr) 180px; grid-template-rows: minmax(0, 1fr); }
-    .layout-harbor .hud { grid-template-columns: 1fr; order: 2; }
-    .layout-matchbox .tapSurface { min-height: 240px; }
-    .layout-signal .topbar, .layout-signal .navRail { max-width: 860px; width: 100%; justify-self: center; }
-    .layout-signal .stage { max-width: 860px; width: 100%; justify-self: center; }
+
+    #app.layout-harbor {
+      grid-template-rows: auto minmax(0, 1fr) auto;
+    }
+    .layout-harbor .gamePanel { grid-template-columns: minmax(0, 1fr) 190px; grid-template-rows: minmax(0, 1fr); }
+    .layout-harbor .hud { grid-template-columns: 1fr; order: 2; align-content: end; }
+    .layout-harbor .tapSurface { min-height: 590px; order: 1; }
+    .layout-harbor .navRail { width: min(100%, 760px); justify-self: center; }
+
+    #app.layout-matchbox {
+      max-width: 1060px;
+      margin: 0 auto;
+      grid-template-columns: minmax(240px, 0.46fr) minmax(0, 0.54fr);
+      grid-template-rows: auto minmax(0, 1fr);
+      grid-template-areas: "topbar stage" "nav stage";
+    }
+    .layout-matchbox .topbar { grid-template-columns: 1fr; align-content: start; }
+    .layout-matchbox .walletBtn { width: 100%; max-width: none; }
+    .layout-matchbox .navRail { grid-template-columns: 1fr; align-content: center; }
+    .layout-matchbox .gamePanel { grid-template-rows: minmax(260px, 0.72fr) auto; }
+    .layout-matchbox .tapSurface { min-height: 320px; }
+    .layout-matchbox .hud { grid-template-columns: 1fr; }
+
+    #app.layout-signal {
+      max-width: 960px;
+      margin: 0 auto;
+      grid-template-rows: auto auto minmax(0, 1fr);
+      grid-template-areas: "topbar" "nav" "stage";
+    }
+    .layout-signal .topbar { width: min(100%, 760px); justify-self: center; grid-template-columns: 1fr; justify-items: center; text-align: center; }
+    .layout-signal .walletBtn { width: min(100%, 260px); max-width: none; }
+    .layout-signal .navRail { width: min(100%, 720px); justify-self: center; }
+    .layout-signal .hud { width: min(100%, 720px); justify-self: center; }
+    .layout-signal .tapSurface { width: min(100%, 760px); justify-self: center; min-height: 430px; }
+
+    body.layout-ledger .modalBackdrop, body.layout-civic .modalBackdrop, body.layout-field .modalBackdrop { align-items: start; justify-items: start; padding: 28px; }
+    body.layout-desk .modalBackdrop, body.layout-circuit .modalBackdrop { align-items: start; justify-items: end; padding: 28px; }
+    body.layout-pixel .modalBackdrop, body.layout-harbor .modalBackdrop { align-items: end; justify-items: end; padding: 28px; }
+    body.layout-transit .modalBackdrop, body.layout-archive .modalBackdrop { align-items: center; justify-items: end; padding: 28px; }
+    body.layout-orchard .modalBackdrop, body.layout-signal .modalBackdrop, body.layout-ceramic .modalBackdrop { align-items: center; justify-items: center; padding: 28px; }
+    body.layout-pocket .walletDialog, body.layout-matchbox .walletDialog { width: min(100%, 380px); }
+    body.layout-ledger #sheetBackdrop, body.layout-field #sheetBackdrop { align-items: end; justify-items: start; padding: 28px; }
+    body.layout-desk #sheetBackdrop, body.layout-harbor #sheetBackdrop { align-items: center; justify-items: end; padding: 28px; }
+    body.layout-transit #sheetBackdrop, body.layout-civic #sheetBackdrop { align-items: start; justify-items: end; padding: 28px; }
+    body.layout-pixel #sheetBackdrop, body.layout-archive #sheetBackdrop { align-items: end; justify-items: end; padding: 28px; }
+    body.layout-ceramic #sheetBackdrop, body.layout-orchard #sheetBackdrop, body.layout-pocket #sheetBackdrop, body.layout-matchbox #sheetBackdrop, body.layout-signal #sheetBackdrop { align-items: end; justify-items: center; padding: 28px; }
+
+    .layout-ledger h1 { font-size: clamp(34px, 4.6vw, 58px); line-height: 0.92; }
+    .layout-ledger .topbar { border-top: 8px solid var(--accent); }
+    .layout-ledger .navBtn { text-align: left; padding-left: 18px; }
+    .layout-ledger #hint { width: min(100%, 360px); min-height: 58px; font-size: 20px; text-transform: uppercase; }
+
+    .layout-desk .topbar { border-right: 8px solid var(--accent); }
+    .layout-desk .navBtn { min-height: 86px; }
+    .layout-desk .tapSurface { grid-template-rows: minmax(120px, 1fr) 76px auto; }
+    .layout-desk #hint { width: 180px; min-height: 56px; border-radius: 999px; }
+    .layout-desk .tapSub { align-self: start; }
+
+    .layout-ceramic h1 { font-weight: 700; text-align: center; }
+    .layout-ceramic .brandBlock { text-align: center; }
+    .layout-ceramic .walletBtn { justify-self: center; width: min(100%, 220px); }
+    .layout-ceramic #hint { border-radius: 999px; min-width: 92px; }
+    .layout-ceramic .tapAsset { width: min(30vw, 160px); }
+
+    .layout-pixel h1, .layout-pixel .navBtn, .layout-pixel #hint { text-transform: uppercase; }
+    .layout-pixel .tapSurface { grid-template-rows: minmax(120px, 1fr) 54px 24px; }
+    .layout-pixel #hint { width: min(100%, 920px); border-width: 2px; border-radius: 2px; }
+    .layout-pixel .walletBtn { border-width: 2px; border-radius: 2px; }
+
+    .layout-transit .navBtn { min-height: 96px; text-align: left; padding-left: 20px; }
+    .layout-transit .tapSurface { border-left: 12px solid var(--accent); }
+    .layout-transit #hint { justify-self: start; margin-left: 28px; min-width: 140px; }
+    .layout-transit .tapSub { justify-self: start; margin-left: 38px; }
+
+    .layout-blueprint .topbar { border-bottom: 5px solid var(--accent); }
+    .layout-blueprint .metric { display: grid; align-content: space-between; }
+    .layout-blueprint #hint { width: min(100%, 320px); justify-self: end; margin-right: 22px; }
+    .layout-blueprint .tapSub { justify-self: end; margin-right: 36px; }
+
+    .layout-orchard h1 { font-size: clamp(36px, 5vw, 64px); font-weight: 650; }
+    .layout-orchard .tapSurface { border-radius: 8px 8px 48px 48px; }
+    .layout-orchard #hint { border-radius: 999px; min-width: 120px; }
+    .layout-orchard .metric:first-child strong { font-size: clamp(32px, 6vw, 52px); }
+
+    .layout-civic .navBtn { text-align: left; padding-left: 18px; }
+    .layout-civic .tapSurface { border-top: 8px solid var(--accent); }
+    .layout-civic #hint { justify-self: end; margin-right: 28px; min-width: 130px; }
+    .layout-civic .tapSub { justify-self: end; margin-right: 36px; }
+
+    .layout-pocket h1 { font-size: clamp(32px, 7vw, 54px); }
+    .layout-pocket .navRail { border-radius: 999px; padding: 6px; }
+    .layout-pocket .navBtn { border-radius: 999px; }
+    .layout-pocket .tapSurface { border-radius: 42px; }
+    .layout-pocket #hint { border-radius: 999px; width: min(100%, 260px); }
+
+    .layout-archive .topbar { border-bottom: 8px solid var(--accent); }
+    .layout-archive .navBtn { min-height: 92px; text-align: left; padding-left: 18px; }
+    .layout-archive .tapSurface { grid-template-rows: minmax(120px, 1fr) auto auto; }
+    .layout-archive #hint { justify-self: start; margin-left: 28px; min-width: 180px; text-align: left; justify-content: start; }
+    .layout-archive .tapSub { justify-self: start; margin-left: 38px; }
+
+    .layout-circuit .tapSurface { border-right: 8px solid var(--accent); }
+    .layout-circuit .navBtn { min-height: 52px; }
+    .layout-circuit #hint { width: 160px; border-radius: 2px; }
+    .layout-circuit .tapAsset { width: min(26vw, 180px); }
+
+    .layout-field h1 { font-weight: 780; }
+    .layout-field .navBtn { min-height: 88px; }
+    .layout-field .tapSurface { border-radius: 8px 72px 8px 72px; }
+    .layout-field #hint { width: min(100%, 260px); align-self: end; }
+
+    .layout-harbor .tapSurface { border-bottom: 10px solid var(--accent); }
+    .layout-harbor .hud { border-left: 1px solid var(--line); padding-left: 12px; }
+    .layout-harbor #hint { justify-self: start; margin-left: 24px; width: min(100%, 240px); }
+    .layout-harbor .tapSub { justify-self: start; margin-left: 36px; }
+
+    .layout-matchbox h1 { font-size: clamp(38px, 5vw, 60px); line-height: 0.9; }
+    .layout-matchbox .topbar { border-left: 8px solid var(--accent); }
+    .layout-matchbox .navBtn { text-align: left; padding-left: 18px; }
+    .layout-matchbox .tapSurface { border-radius: 2px; }
+    .layout-matchbox #hint { width: min(100%, 300px); border-radius: 2px; }
+
+    .layout-signal .topbar { border-top: 6px solid var(--accent); border-bottom: 6px solid var(--accent); }
+    .layout-signal .navRail { border-radius: 999px; }
+    .layout-signal .navBtn { border-radius: 999px; }
+    .layout-signal .tapSurface { border-radius: 999px 999px 8px 8px; }
+    .layout-signal #hint { min-width: 120px; border-radius: 999px; }
 
     @media (min-width: 840px) {
       #app { padding-left: 28px; padding-right: 28px; }
-      .layout-ledger .stage, .layout-transit .stage, .layout-civic .stage, .layout-field .stage {
-        max-width: 940px;
-        width: 100%;
-        justify-self: center;
+      .layout-ledger .stage, .layout-archive .stage { min-width: 0; }
+      .layout-pixel .stage, .layout-transit .stage, .layout-blueprint .stage, .layout-civic .stage, .layout-field .stage {
+        min-width: 0;
       }
-      .layout-ceramic .hud { max-width: 760px; width: 100%; justify-self: center; }
-      .layout-matchbox .stage {
-        grid-template-columns: minmax(0, 0.9fr);
-        justify-content: center;
-      }
-      .layout-matchbox .gamePanel { max-width: 620px; justify-self: center; }
     }
     @media (max-width: 720px) {
-      #app { gap: 10px; padding-left: 12px; padding-right: 12px; }
-      .topbar { grid-template-columns: minmax(0, 1fr); }
-      .walletBtn { width: 100%; max-width: none; }
-      .hud { grid-template-columns: 1fr; }
-      .metric { min-height: 58px; }
-      .layout-desk .gamePanel, .layout-harbor .gamePanel {
+      #app,
+      #app.layout-ledger,
+      #app.layout-desk,
+      #app.layout-ceramic,
+      #app.layout-pixel,
+      #app.layout-transit,
+      #app.layout-blueprint,
+      #app.layout-orchard,
+      #app.layout-civic,
+      #app.layout-pocket,
+      #app.layout-archive,
+      #app.layout-circuit,
+      #app.layout-field,
+      #app.layout-harbor,
+      #app.layout-matchbox,
+      #app.layout-signal {
+        max-width: none;
         grid-template-columns: 1fr;
-        grid-template-rows: auto minmax(280px, 1fr);
+        grid-template-rows: auto minmax(0, 1fr) auto;
+        grid-template-areas: "topbar" "stage" "nav";
+        gap: 10px;
+        padding-left: 12px;
+        padding-right: 12px;
       }
-      .layout-harbor .hud { order: 0; }
+      .topbar,
+      .layout-ledger .topbar,
+      .layout-archive .topbar,
+      .layout-matchbox .topbar,
+      .layout-pocket .topbar,
+      .layout-signal .topbar {
+        width: 100%;
+        grid-template-columns: minmax(0, 1fr);
+        justify-items: stretch;
+        text-align: left;
+      }
+      .walletBtn, .layout-ledger .walletBtn, .layout-pocket .walletBtn, .layout-signal .walletBtn { width: 100%; max-width: none; }
+      .navRail,
+      .layout-ledger .navRail,
+      .layout-desk .navRail,
+      .layout-pixel .navRail,
+      .layout-transit .navRail,
+      .layout-civic .navRail,
+      .layout-field .navRail,
+      .layout-archive .navRail,
+      .layout-matchbox .navRail {
+        width: 100%;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        align-content: stretch;
+        border-left-width: 1px;
+      }
+      .gamePanel,
+      .layout-ledger .gamePanel,
+      .layout-desk .gamePanel,
+      .layout-ceramic .gamePanel,
+      .layout-pixel .gamePanel,
+      .layout-transit .gamePanel,
+      .layout-blueprint .gamePanel,
+      .layout-orchard .gamePanel,
+      .layout-civic .gamePanel,
+      .layout-pocket .gamePanel,
+      .layout-archive .gamePanel,
+      .layout-circuit .gamePanel,
+      .layout-field .gamePanel,
+      .layout-harbor .gamePanel,
+      .layout-matchbox .gamePanel,
+      .layout-signal .gamePanel {
+        position: static;
+        display: grid;
+        grid-template-columns: 1fr;
+        grid-template-rows: auto minmax(300px, 1fr);
+        min-height: 0;
+      }
+      .hud,
+      .layout-ceramic .hud,
+      .layout-pocket .hud,
+      .layout-circuit .hud {
+        position: static;
+        display: grid;
+        grid-template-columns: 1fr;
+        order: 0;
+        width: 100%;
+        pointer-events: auto;
+      }
+      .metric,
+      .layout-ceramic .metric {
+        position: static;
+        width: auto;
+        min-height: 58px;
+        transform: none;
+      }
+      .tapSurface,
+      .layout-ceramic .tapSurface,
+      .layout-pocket .tapSurface,
+      .layout-signal .tapSurface {
+        position: relative;
+        left: auto;
+        top: auto;
+        transform: none;
+        width: 100%;
+        aspect-ratio: auto;
+        min-height: 300px;
+        order: 1;
+      }
       .presetRow { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-      .tapSurface { min-height: 300px; }
+      body .modalBackdrop, body #sheetBackdrop { padding: 14px; align-items: end; justify-items: center; }
     }
     @media (prefers-reduced-motion: reduce) {
       .floatPlus { animation: none; opacity: 0; }
@@ -452,7 +802,7 @@
   </style>
 </head>
 
-<body>
+<body class="layout-pocket">
   <div id="app" class="layout-pocket">
     <header class="topbar">
       <div class="brandBlock">
