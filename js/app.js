@@ -1,17 +1,11 @@
-// Bandor Pata Tapper â€” Farcaster Mini App (production static)
-// IMPORTANT: keep asset/script URLs relative so the app works on any deployed domain.
+// Tap transaction web app.
+// Asset URLs stay relative so each deployed repo can keep its own domain.
 
-import { sdk } from "https://esm.sh/@farcaster/miniapp-sdk";
 import { Attribution } from "https://esm.sh/ox/erc8021";
 
-
-// ---------- Runtime config (Vercel ENV) ----------
-// PAYMASTER_SERVICE_URL is read at RUNTIME from /api/config so you can change it from Vercel
-// without rebuilding the frontend bundle.
 let PAYMASTER_SERVICE_URL = "";
 
 async function loadRuntimeConfig() {
-  // Optional manual override (useful for local testing)
   if (typeof window !== "undefined" && typeof window.PAYMASTER_SERVICE_URL === "string") {
     PAYMASTER_SERVICE_URL = window.PAYMASTER_SERVICE_URL.trim();
     return PAYMASTER_SERVICE_URL;
@@ -23,54 +17,58 @@ async function loadRuntimeConfig() {
     const url = (j?.paymasterServiceUrl || "").trim();
     if (url) PAYMASTER_SERVICE_URL = url;
   } catch {
-    // ignore
+    // Runtime config is optional for local/static preview.
   }
   return PAYMASTER_SERVICE_URL;
 }
 
-// Cache wallet capabilities once per session to avoid extra RPC calls
 let __walletCaps = null;
+let __walletCapsKey = "";
 
-async function getWalletCapabilities(provider, userAddress) {
-  if (__walletCaps) return __walletCaps;
+const __walletSession = {
+  provider: null,
+  from: null,
+  ready: false,
+  paymasterSupported: false,
+  label: "",
+};
+
+const eip6963Providers = new Map();
+const providerEventBound = new WeakSet();
+let __provider = null;
+let __providerLabel = "";
+let __providerId = "";
+let __account = null;
+let __connectInFlight = null;
+let __switchInFlight = null;
+
+if (typeof window !== "undefined") {
+  window.addEventListener("eip6963:announceProvider", (event) => {
+    const detail = event.detail || {};
+    if (!detail.provider) return;
+    const info = detail.info || {};
+    const key = info.uuid || info.rdns || info.name || `wallet-${eip6963Providers.size}`;
+    eip6963Providers.set(key, { provider: detail.provider, info });
+  });
   try {
-    __walletCaps = await provider.request({
-      method: "wallet_getCapabilities",
-      params: [userAddress],
-    });
+    window.dispatchEvent(new Event("eip6963:requestProvider"));
   } catch {
-    __walletCaps = {};
+    // Older browsers may not support the event constructor.
   }
-  return __walletCaps;
-}
-
-function walletSupportsPaymaster(caps, chainIdHex) {
-  // Base docs: capabilities are returned per chain id, e.g. caps["0x2105"].paymasterService.supported
-  return !!caps?.[chainIdHex]?.paymasterService?.supported;
 }
 
 const USDC_CONTRACT = "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913";
 const USDC_DECIMALS = 6;
 
-// Base Mainnet (8453 / 0x2105) â€” this is where your contract lives.
 const BASE_MAINNET_CHAIN_ID = "0x2105";
 
-// Your onchain contract to hit on every tap.
 const TAP_CONTRACT = "0x02969f3269f78769c5d8d5682e56378cde8e0bb8"; // checksummed
 
-// Optional: the same address is used as the USDC tip recipient in the Tip tab.
 const TIP_RECIPIENT = "0xC749E2959e244cD516C93Eb97cD5Eb8b66168924";
 
-// Contract function: logAction(bytes32,bytes)
-// selector = keccak256("logAction(bytes32,bytes)")[0:4] = 0x2d9bc1fb
 const LOG_ACTION_SELECTOR = "0x2d9bc1fb";
 const ACTION_TAP = "TAP";
 
-// Builder Code attribution via `dataSuffix` (ERC-8021).
-// You can replace this with your real code from base.dev.
-// IMPORTANT: Per Base Account docs, the `dataSuffix` capability must be an object
-// with a `value` field (hex string). Passing a raw string will throw:
-//   "Expected object, received string".
 const BUILDER_CODE = "bc_jstvhjq5";
 const builderCodeSuffix = Attribution.toDataSuffix({ codes: [BUILDER_CODE] });
 
@@ -79,13 +77,12 @@ function isHexAddress(addr) {
 }
 
 function isReadyToSend() {
-  // We never want to crash or block the UI â€” just surface clear errors.
-  if (!isHexAddress(TAP_CONTRACT)) return false;
-  return true;
+  return isHexAddress(TAP_CONTRACT);
 }
 
-function toast(msg, ms = 2200) {
+function toast(msg, ms = 2400) {
   const el = document.getElementById("toast");
+  if (!el) return;
   el.textContent = msg;
   el.classList.add("show");
   window.clearTimeout(toast._t);
@@ -100,7 +97,6 @@ function todayKey() {
   return `${y}-${m}-${day}`;
 }
 
-// ---------- Local state ----------
 const store = {
   getPata() {
     const v = localStorage.getItem("pata");
@@ -134,11 +130,10 @@ const store = {
   },
 };
 
-// ---------- Game ----------
 const MILESTONES = [
-  { at: 500, label: "Nice! ðŸ¥³" },
-  { at: 1000, label: "Big Pata Energy ðŸ˜Ž" },
-  { at: 2500, label: "Leaf Legend ðŸƒðŸ‘‘" },
+  { at: 500, label: "Nice run" },
+  { at: 1000, label: "Pata stack growing" },
+  { at: 2500, label: "Tap streak strong" },
 ];
 
 let pata = store.getPata();
@@ -147,13 +142,20 @@ let streak = store.getStreak();
 let nextMilestoneIdx = 0;
 
 function fmt(n) {
-  try { return n.toLocaleString("en-US"); } catch { return String(n); }
+  try {
+    return n.toLocaleString("en-US");
+  } catch {
+    return String(n);
+  }
 }
 
 function updateHud() {
-  document.getElementById("pataText").textContent = `Pata: ${fmt(pata)}`;
-  document.getElementById("energyText").textContent = `${energy}/100`;
-  document.getElementById("streakText").textContent = String(streak);
+  const pataEl = document.getElementById("pataText");
+  const energyEl = document.getElementById("energyText");
+  const streakEl = document.getElementById("streakText");
+  if (pataEl) pataEl.textContent = fmt(pata);
+  if (energyEl) energyEl.textContent = `${energy}/100`;
+  if (streakEl) streakEl.textContent = String(streak);
 }
 
 function maybeUpdateStreak() {
@@ -167,24 +169,20 @@ function maybeUpdateStreak() {
   }
   if (last === today) return;
 
-  // if last was yesterday, continue streak; else reset
   const lastDate = new Date(last + "T00:00:00");
   const todayDate = new Date(today + "T00:00:00");
   const diffDays = Math.round((todayDate - lastDate) / 86400000);
-  if (diffDays === 1) {
-    streak += 1;
-  } else {
-    streak = 1;
-  }
+  streak = diffDays === 1 ? streak + 1 : 1;
   store.setStreak(streak);
   store.setLastPlayDay(today);
 }
 
 function spawnPlus(x, y, text) {
+  const area = document.getElementById("tapArea");
+  if (!area) return;
   const el = document.createElement("div");
   el.className = "floatPlus";
   el.textContent = text;
-  const area = document.getElementById("tapArea");
   const r = area.getBoundingClientRect();
   el.style.left = `${x - r.left}px`;
   el.style.top = `${y - r.top}px`;
@@ -194,13 +192,9 @@ function spawnPlus(x, y, text) {
 
 function onTap(ev) {
   maybeUpdateStreak();
-
-  // Keep the UI responsive: show feedback immediately,
-  // but only add +1 Pata after the tx is confirmed.
   const point = ev.touches?.[0] || ev;
   spawnPlus(point.clientX, point.clientY, "+1");
 
-  // Optional energy meter (never blocks onchain taps)
   if (energy > 0) {
     energy -= 1;
     store.setEnergy(energy);
@@ -230,29 +224,34 @@ function startEnergyRegen() {
   }, 5000);
 }
 
-// ---------- Navigation ----------
 function showPanel(name) {
   const earn = document.getElementById("earnPanel");
-  if (name === "earn") earn.classList.add("show");
-  else earn.classList.remove("show");
+  const game = document.getElementById("gamePanel");
+  if (earn) earn.hidden = name !== "earn";
+  if (game) game.hidden = name === "earn";
 
-  document.getElementById("navGame").classList.toggle("primary", name === "game");
-  document.getElementById("navEarn").classList.toggle("primary", name === "earn");
-  document.getElementById("navTip").classList.toggle("primary", name === "tip");
+  document.getElementById("navGame")?.classList.toggle("primary", name === "game");
+  document.getElementById("navEarn")?.classList.toggle("primary", name === "earn");
+  document.getElementById("navTip")?.classList.toggle("primary", name === "tip");
+
+  if (name === "tip") openSheet();
+  else closeSheet();
 }
 
 function openSheet() {
   const bd = document.getElementById("sheetBackdrop");
+  if (!bd) return;
   bd.classList.add("show");
   bd.setAttribute("aria-hidden", "false");
 }
+
 function closeSheet() {
   const bd = document.getElementById("sheetBackdrop");
+  if (!bd) return;
   bd.classList.remove("show");
   bd.setAttribute("aria-hidden", "true");
 }
 
-// ---------- USDC transfer encoding ----------
 const TRANSFER_SELECTOR = "a9059cbb";
 
 function pad32(hexNo0x) {
@@ -266,7 +265,7 @@ function parseUsdcToBaseUnits(input) {
   const [whole, frac = ""] = s.split(".");
   const fracPadded = (frac + "0".repeat(USDC_DECIMALS)).slice(0, USDC_DECIMALS);
   const units = BigInt(whole) * BigInt(10 ** USDC_DECIMALS) + BigInt(fracPadded || "0");
-  if (units <= 0n) throw new Error("Amount must be > 0");
+  if (units <= 0n) throw new Error("Amount must be greater than 0");
   return units;
 }
 
@@ -276,7 +275,6 @@ function encodeErc20Transfer(to, units) {
   return "0x" + TRANSFER_SELECTOR + pad32(addr) + pad32(amt);
 }
 
-// ---------- ABI encoding (no external deps) ----------
 function hexPadLeft(hexNo0x, bytes) {
   return hexNo0x.replace(/^0x/, "").padStart(bytes * 2, "0");
 }
@@ -303,69 +301,268 @@ function abiEncodeLogAction(actionBytes32, dataHex) {
   const action = hexPadLeft(actionBytes32, 32);
   const dataNo0x = String(dataHex || "0x").replace(/^0x/, "");
   const dataLen = dataNo0x.length / 2;
-  const offset = hexPadLeft("40", 32); // bytes offset to dynamic part
+  const offset = hexPadLeft("40", 32);
   const lenWord = hexPadLeft(dataLen.toString(16), 32);
   const paddedData = dataNo0x.padEnd(Math.ceil(dataLen / 32) * 64, "0");
   return LOG_ACTION_SELECTOR + action + offset + lenWord + paddedData;
 }
 
-function sleep(ms){ return new Promise(r=>setTimeout(r, ms)); }
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
 
-// ---------- Wallet helpers ----------
-// ---------- Wallet helpers ----------
-// IMPORTANT: Farcaster hosts (and some wallets) do NOT like multiple interactive requests
-// (eth_requestAccounts / wallet_switchEthereumChain / wallet_sendCalls) fired back-to-back.
-// So we cache provider + account, and we strictly serialize connect/switch/send.
+function withTimeout(promise, timeoutMs) {
+  let t;
+  const timeout = new Promise((_, reject) => {
+    t = window.setTimeout(() => reject(new Error("Timed out waiting for wallet response")), timeoutMs);
+  });
+  return Promise.race([promise.finally(() => window.clearTimeout(t)), timeout]);
+}
 
-let __provider = null;
-let __account = null;
+function shortAddress(addr) {
+  return addr ? `${addr.slice(0, 6)}...${addr.slice(-4)}` : "Wallet";
+}
 
-let __connectInFlight = null;
-let __switchInFlight = null;
+function updateWalletStatus() {
+  const el = document.getElementById("walletStatus");
+  if (!el) return;
+  if (__account) el.textContent = shortAddress(__account);
+  else if (__providerLabel) el.textContent = __providerLabel;
+  else el.textContent = "Wallet";
+}
 
-async function getProvider() {
-  if (__provider) return __provider;
+function walletIdFromInfo(info = {}, provider = {}) {
+  const rdns = String(info.rdns || "").toLowerCase();
+  const name = String(info.name || "").toLowerCase();
+  if (provider.isRabby || rdns.includes("rabby") || name.includes("rabby")) return "rabby";
+  if (provider.isOkxWallet || provider.isOKExWallet || rdns.includes("okx") || name.includes("okx")) return "okx";
+  if (provider.isMetaMask || rdns.includes("metamask") || name.includes("metamask")) return "metamask";
+  if (provider.isCoinbaseWallet || rdns.includes("coinbase") || name.includes("coinbase")) return "coinbase";
+  if (rdns) return rdns;
+  if (name) return name.replace(/\s+/g, "-");
+  return "";
+}
 
-  // Farcaster Mini App SDK provider (preferred)
-  if (sdk?.wallet?.getEthereumProvider) {
-    const p = await sdk.wallet.getEthereumProvider();
-    if (p) {
-      __provider = p;
-      return __provider;
+function walletNameFromId(id, info = {}) {
+  if (info.name) return info.name;
+  if (id === "metamask") return "MetaMask";
+  if (id === "rabby") return "Rabby";
+  if (id === "okx") return "OKX Wallet";
+  if (id === "coinbase") return "Coinbase Wallet";
+  return "Browser Wallet";
+}
+
+function providerSource(info = {}, fallback = "Injected") {
+  if (info.rdns) return info.rdns;
+  if (info.uuid) return "EIP-6963";
+  return fallback;
+}
+
+function requestEip6963Providers() {
+  try {
+    window.dispatchEvent(new Event("eip6963:requestProvider"));
+  } catch {
+    // ignore
+  }
+}
+
+async function collectWalletOptions() {
+  requestEip6963Providers();
+  await sleep(120);
+
+  const options = [];
+  const seenProviders = new WeakSet();
+  const seenKnownIds = new Set();
+
+  const addProvider = (provider, info = {}, fallbackSource = "Injected") => {
+    if (!provider?.request || seenProviders.has(provider)) return;
+    const baseId = walletIdFromInfo(info, provider);
+    const knownId = ["metamask", "rabby", "okx", "coinbase"].includes(baseId) ? baseId : "";
+    if (knownId && seenKnownIds.has(knownId)) return;
+    seenProviders.add(provider);
+    if (knownId) seenKnownIds.add(knownId);
+    const id = baseId || `browser-wallet-${options.length + 1}`;
+    options.push({
+      id,
+      label: walletNameFromId(id, info),
+      source: providerSource(info, fallbackSource),
+      provider,
+    });
+  };
+
+  for (const { provider, info } of eip6963Providers.values()) {
+    addProvider(provider, info, "EIP-6963");
+  }
+
+  const injected = window.ethereum;
+  const injectedProviders = [];
+  if (Array.isArray(injected?.providers)) injectedProviders.push(...injected.providers);
+  if (injected?.request) injectedProviders.push(injected);
+  for (const provider of injectedProviders) addProvider(provider, {}, "Extension");
+
+  return options;
+}
+
+function openWalletDialog(options) {
+  return new Promise((resolve, reject) => {
+    const backdrop = document.getElementById("walletBackdrop");
+    const list = document.getElementById("walletList");
+    const close = document.getElementById("closeWallet");
+    const help = document.getElementById("walletHelp");
+    if (!backdrop || !list || !close) {
+      reject(new Error("Wallet dialog unavailable"));
+      return;
     }
-  }
 
-  // Fallback for regular browsers
-  if (window.ethereum) {
-    __provider = window.ethereum;
-    return __provider;
-  }
+    list.textContent = "";
+    if (help) {
+      help.textContent = options.length
+        ? "Each detected wallet is listed once. Choose the wallet you want to use."
+        : "No injected wallet was found. Open this page inside MetaMask, Rabby, OKX, or another Base-compatible wallet browser.";
+    }
 
-  throw new Error("No wallet provider found");
+    const selectedId = localStorage.getItem("selectedWalletId") || "";
+
+    for (const option of options) {
+      const btn = document.createElement("button");
+      btn.type = "button";
+      btn.className = "walletOption";
+      if (selectedId && option.id === selectedId) btn.classList.add("selected");
+
+      const text = document.createElement("span");
+      const name = document.createElement("strong");
+      name.textContent = option.label;
+      const source = document.createElement("span");
+      source.textContent = option.source;
+      text.append(name, source);
+
+      const badge = document.createElement("span");
+      badge.className = "walletBadge";
+      badge.textContent = option.id === "okx" ? "OKX" : option.id;
+
+      btn.append(text, badge);
+      btn.addEventListener("click", () => {
+        cleanup();
+        resolve(option);
+      });
+      list.appendChild(btn);
+    }
+
+    if (!options.length) {
+      const empty = document.createElement("div");
+      empty.className = "card";
+      const title = document.createElement("h2");
+      title.textContent = "No wallet detected";
+      const copy = document.createElement("p");
+      copy.className = "p";
+      copy.textContent = "Use a wallet browser or enable one wallet extension for this site.";
+      empty.append(title, copy);
+      list.appendChild(empty);
+    }
+
+    const cleanup = () => {
+      backdrop.classList.remove("show");
+      backdrop.setAttribute("aria-hidden", "true");
+      close.removeEventListener("click", onCancel);
+      backdrop.removeEventListener("click", onBackdrop);
+    };
+    const onCancel = () => {
+      cleanup();
+      reject(new Error("Wallet selection cancelled"));
+    };
+    const onBackdrop = (event) => {
+      if (event.target === backdrop) onCancel();
+    };
+
+    close.addEventListener("click", onCancel);
+    backdrop.addEventListener("click", onBackdrop);
+    backdrop.classList.add("show");
+    backdrop.setAttribute("aria-hidden", "false");
+  });
+}
+
+function resetWalletSession({ keepProvider = true } = {}) {
+  __walletSession.provider = keepProvider ? __provider : null;
+  __walletSession.from = null;
+  __walletSession.ready = false;
+  __walletSession.paymasterSupported = false;
+  __walletSession.label = keepProvider ? __providerLabel : "";
+  __account = null;
+  __walletCaps = null;
+  __walletCapsKey = "";
+  if (!keepProvider) {
+    __provider = null;
+    __providerLabel = "";
+    __providerId = "";
+  }
+  updateWalletStatus();
+}
+
+function bindProviderEvents(provider) {
+  if (!provider?.on || providerEventBound.has(provider)) return;
+  providerEventBound.add(provider);
+  provider.on("accountsChanged", (accounts) => {
+    const next = accounts?.[0] || null;
+    __account = next;
+    __walletSession.from = next;
+    __walletSession.ready = !!next && __walletSession.ready;
+    __walletCaps = null;
+    __walletCapsKey = "";
+    updateWalletStatus();
+  });
+  provider.on("chainChanged", () => {
+    __walletSession.ready = false;
+    __walletCaps = null;
+    __walletCapsKey = "";
+  });
+}
+
+async function chooseInjectedProvider({ forceChoice = false } = {}) {
+  const options = await collectWalletOptions();
+  const selectedId = localStorage.getItem("selectedWalletId");
+  if (!forceChoice && selectedId) {
+    const found = options.find((option) => option.id === selectedId);
+    if (found) return found;
+  }
+  if (!forceChoice && options.length === 1) return options[0];
+
+  const chosen = await openWalletDialog(options);
+  localStorage.setItem("selectedWalletId", chosen.id);
+  return chosen;
+}
+
+async function getProvider({ forceChoice = false } = {}) {
+  if (__provider && !forceChoice) return __provider;
+  const chosen = await chooseInjectedProvider({ forceChoice });
+  __provider = chosen.provider;
+  __providerLabel = chosen.label;
+  __providerId = chosen.id;
+  bindProviderEvents(__provider);
+  updateWalletStatus();
+  return __provider;
 }
 
 async function ensureConnected(provider) {
   if (__account) return __account;
-
-  // Try non-interactive first
   try {
     const existing = await provider.request({ method: "eth_accounts" });
     const addr = existing?.[0];
     if (addr) {
       __account = addr;
+      updateWalletStatus();
       return __account;
     }
   } catch {
-    // ignore
+    // Some providers only support the interactive request.
   }
 
-  // Interactive connect (ONLY ONE at a time)
   if (!__connectInFlight) {
     __connectInFlight = (async () => {
       const accounts = await provider.request({ method: "eth_requestAccounts" });
       const addr = accounts?.[0];
       if (!addr) throw new Error("No account selected");
       __account = addr;
+      updateWalletStatus();
       return __account;
     })().finally(() => {
       __connectInFlight = null;
@@ -375,24 +572,39 @@ async function ensureConnected(provider) {
 }
 
 async function ensureBaseMainnet(provider) {
-  // Serialize chain switching too (wallet UIs often break if we overlap switch + send)
   if (!__switchInFlight) {
     __switchInFlight = (async () => {
       const chainId = await provider.request({ method: "eth_chainId" });
-      if (chainId === BASE_MAINNET_CHAIN_ID) return chainId;
+      if (String(chainId).toLowerCase() === BASE_MAINNET_CHAIN_ID) return BASE_MAINNET_CHAIN_ID;
 
       try {
         await provider.request({
           method: "wallet_switchEthereumChain",
           params: [{ chainId: BASE_MAINNET_CHAIN_ID }],
         });
-      } catch {
-        throw new Error("Please switch to Base Mainnet (8453)");
+      } catch (switchError) {
+        const code = Number(switchError?.code);
+        if (code === 4902) {
+          await provider.request({
+            method: "wallet_addEthereumChain",
+            params: [{
+              chainId: BASE_MAINNET_CHAIN_ID,
+              chainName: "Base",
+              nativeCurrency: { name: "Ether", symbol: "ETH", decimals: 18 },
+              rpcUrls: ["https://mainnet.base.org"],
+              blockExplorerUrls: ["https://basescan.org"],
+            }],
+          });
+        } else {
+          throw new Error("Please switch to Base Mainnet");
+        }
       }
 
       const next = await provider.request({ method: "eth_chainId" });
-      if (next !== BASE_MAINNET_CHAIN_ID) throw new Error("Could not switch to Base Mainnet");
-      return next;
+      if (String(next).toLowerCase() !== BASE_MAINNET_CHAIN_ID) {
+        throw new Error("Could not switch to Base Mainnet");
+      }
+      return BASE_MAINNET_CHAIN_ID;
     })().finally(() => {
       __switchInFlight = null;
     });
@@ -400,25 +612,53 @@ async function ensureBaseMainnet(provider) {
   return __switchInFlight;
 }
 
-// ---------- Tap -> onchain tx (one tx per tap, queued) ----------
-let tapQueue = 0;
-let tapSending = false;
-
-function setTapHint(text) {
-  const el = document.getElementById("hint");
-  if (el) el.textContent = text;
+async function getWalletCapabilities(provider, userAddress) {
+  const key = `${__providerId || "wallet"}:${userAddress || ""}`;
+  if (__walletCaps && __walletCapsKey === key) return __walletCaps;
+  try {
+    __walletCaps = await provider.request({
+      method: "wallet_getCapabilities",
+      params: [userAddress],
+    });
+  } catch {
+    __walletCaps = {};
+  }
+  __walletCapsKey = key;
+  return __walletCaps;
 }
 
-async function getEthBalanceWei(provider, address) {
-  const hex = await provider.request({ method: "eth_getBalance", params: [address, "latest"] });
-  return BigInt(hex);
+function walletSupportsPaymaster(caps, chainIdHex) {
+  return !!caps?.[chainIdHex]?.paymasterService?.supported;
 }
 
-// ---------- Paymaster helpers ----------
-// We ONLY attach paymasterService if:
-// 1) PAYMASTER_SERVICE_URL is configured (from Vercel env via /api/config), AND
-// 2) the connected wallet reports paymasterService support for Base mainnet (0x2105).
+async function initWalletSession({ forceChoice = false } = {}) {
+  if (__walletSession.ready && !forceChoice) return __walletSession;
+  if (forceChoice) resetWalletSession({ keepProvider: false });
+  const provider = await getProvider({ forceChoice });
+  const from = await ensureConnected(provider);
+  await ensureBaseMainnet(provider);
+  await loadRuntimeConfig();
+  const caps = await getWalletCapabilities(provider, from);
+  __walletSession.provider = provider;
+  __walletSession.from = from;
+  __walletSession.ready = true;
+  __walletSession.label = __providerLabel;
+  __walletSession.paymasterSupported = !!PAYMASTER_SERVICE_URL && walletSupportsPaymaster(caps, BASE_MAINNET_CHAIN_ID);
+  updateWalletStatus();
+  return __walletSession;
+}
+
+function clonePlain(value) {
+  return JSON.parse(JSON.stringify(value));
+}
+
+function isUserRejected(e) {
+  const msg = String(e?.message || e || "").toLowerCase();
+  return Number(e?.code) === 4001 || msg.includes("user rejected") || msg.includes("rejected") || msg.includes("denied");
+}
+
 async function maybeAttachPaymaster(provider, from, req) {
+  await loadRuntimeConfig();
   if (!PAYMASTER_SERVICE_URL) return { attached: false, req };
   const caps = await getWalletCapabilities(provider, from);
   if (!walletSupportsPaymaster(caps, BASE_MAINNET_CHAIN_ID)) return { attached: false, req };
@@ -429,75 +669,107 @@ async function maybeAttachPaymaster(provider, from, req) {
 }
 
 async function sendCallsWithPaymasterFallback(provider, from, req) {
-  const { attached } = await maybeAttachPaymaster(provider, from, req);
+  const request = clonePlain(req);
+  const { attached } = await maybeAttachPaymaster(provider, from, request);
 
   try {
-    return await provider.request({ method: "wallet_sendCalls", params: [req] });
+    return await provider.request({ method: "wallet_sendCalls", params: [request] });
   } catch (e) {
-    // If paymaster was attached and the paymaster/allowlist/policy rejects,
-    // retry once WITHOUT paymaster so the app doesn't break.
+    if (isUserRejected(e)) throw e;
     if (attached) {
       try {
-        if (req?.capabilities?.paymasterService) delete req.capabilities.paymasterService;
-        return await provider.request({ method: "wallet_sendCalls", params: [req] });
-      } catch {
-        // fall through to original error
+        if (request?.capabilities?.paymasterService) delete request.capabilities.paymasterService;
+        return await provider.request({ method: "wallet_sendCalls", params: [request] });
+      } catch (retryError) {
+        if (isUserRejected(retryError)) throw retryError;
       }
     }
     throw e;
   }
 }
 
+async function sendCallsOrTransaction(provider, from, req, fallbackTx) {
+  try {
+    const response = await sendCallsWithPaymasterFallback(provider, from, req);
+    return { type: "calls", id: response?.id || response };
+  } catch (callsError) {
+    if (isUserRejected(callsError)) throw callsError;
+    const hash = await provider.request({
+      method: "eth_sendTransaction",
+      params: [{ ...fallbackTx, from }],
+    });
+    return { type: "tx", hash };
+  }
+}
 
-async function waitForCallBundleFinal(provider, bundleId, { timeoutMs = 45000, pollMs = 800 } = {}) {
+async function waitForCallBundleFinal(provider, bundleId, { timeoutMs = 60000, pollMs = 1000 } = {}) {
   const start = Date.now();
   while (true) {
     if (Date.now() - start > timeoutMs) {
-      throw new Error("Transaction pending too long. Please try again in a moment.");
+      throw new Error("Transaction pending too long");
     }
     try {
       const status = await provider.request({ method: "wallet_getCallsStatus", params: [bundleId] });
-
-      // EIP-5792 status codes:
-      // 100 = pending, 200 = confirmed success, 400 = offchain failure (and 5xx possible for chain rule failures)
       const code = Number(status?.status);
       if (code >= 200 && code < 300) {
-        // If receipts exist, ensure they are successful
         const receipts = status?.receipts || [];
-        const anyFailed = receipts.some(r => String(r?.status || "").toLowerCase() === "0x0");
-        if (anyFailed) throw new Error("Transaction reverted.");
+        const anyFailed = receipts.some((r) => String(r?.status || "").toLowerCase() === "0x0");
+        if (anyFailed) throw new Error("Transaction reverted");
         return status;
       }
-      if (code >= 400) {
-        throw new Error("Transaction failed (wallet/bundler).");
-      }
-      // else pending
+      if (code >= 400) throw new Error("Transaction failed");
     } catch (e) {
-      const msg = String(e?.message || e || "");
-      // If wallet_getCallsStatus isn't supported, we can't reliably confirm; just wait a bit and return.
-      if (msg.toLowerCase().includes("method not found") || msg.toLowerCase().includes("unsupported") || msg.toLowerCase().includes("does not exist")) {
+      const msg = String(e?.message || e || "").toLowerCase();
+      if (msg.includes("method not found") || msg.includes("unsupported") || msg.includes("does not exist")) {
         await sleep(1500);
         return { status: 100 };
       }
-      // For intermittent provider errors, keep polling a few times.
     }
     await sleep(pollMs);
   }
 }
 
+async function waitForTransactionReceipt(provider, hash, { timeoutMs = 60000, pollMs = 1200 } = {}) {
+  const start = Date.now();
+  while (true) {
+    if (Date.now() - start > timeoutMs) {
+      throw new Error("Transaction pending too long");
+    }
+    const receipt = await provider.request({ method: "eth_getTransactionReceipt", params: [hash] });
+    if (receipt) {
+      if (String(receipt.status || "").toLowerCase() === "0x0") throw new Error("Transaction reverted");
+      return receipt;
+    }
+    await sleep(pollMs);
+  }
+}
+
+async function waitForSubmissionFinal(provider, submission) {
+  if (submission?.type === "calls" && submission.id) {
+    return waitForCallBundleFinal(provider, submission.id);
+  }
+  if (submission?.type === "tx" && submission.hash) {
+    return waitForTransactionReceipt(provider, submission.hash);
+  }
+  await sleep(1200);
+  return null;
+}
+
+let tapQueue = 0;
+let tapSending = false;
+
+function setTapHint(text) {
+  const el = document.getElementById("hint");
+  if (el) el.textContent = text;
+}
+
 async function walletSendCallsTap({ counter }) {
-  const provider = await getProvider();
-
-  // DO NOT call eth_requestAccounts every tap; it creates overlapping interactive prompts.
-  const from = await ensureConnected(provider);
-
-  await ensureBaseMainnet(provider);
+  const { provider, from, ready } = __walletSession.ready ? __walletSession : await initWalletSession();
+  if (!ready) throw new Error("Wallet not ready");
 
   const actionId = bytes32FromAscii(ACTION_TAP);
   const data = uint256ToHex32(counter).replace(/^0x/, "0x");
   const calldata = abiEncodeLogAction(actionId, data);
-
-  // Give each request a unique id (helps some hosts/wallets de-dupe UI flows).
   const reqId = `tap-${Date.now()}-${Math.random().toString(16).slice(2)}`;
 
   const req = {
@@ -506,15 +778,12 @@ async function walletSendCallsTap({ counter }) {
     from,
     chainId: BASE_MAINNET_CHAIN_ID,
     atomicRequired: false,
-    calls: [
-      {
-        to: TAP_CONTRACT,
-        value: "0x0",
-        data: calldata,
-      },
-    ],
+    calls: [{
+      to: TAP_CONTRACT,
+      value: "0x0",
+      data: calldata,
+    }],
     capabilities: {
-      // ERC-8021 attribution (optional, wallet may ignore if unsupported).
       dataSuffix: {
         value: builderCodeSuffix,
         optional: true,
@@ -522,54 +791,60 @@ async function walletSendCallsTap({ counter }) {
     },
   };
 
-  return sendCallsWithPaymasterFallback(provider, from, req);
+  return sendCallsOrTransaction(provider, from, req, {
+    to: TAP_CONTRACT,
+    value: "0x0",
+    data: calldata,
+  });
 }
 
 async function processTapQueue() {
-  if (tapSending) return;
-  if (tapQueue <= 0) return;
+  if (tapSending || tapQueue <= 0) return;
   tapSending = true;
   try {
+    if (!__walletSession.ready) {
+      setTapHint("Connecting wallet");
+      await initWalletSession();
+    }
+
     while (tapQueue > 0) {
       const nextCounter = (Number(localStorage.getItem("tapCounter") || "0") || 0) + 1;
-      setTapHint(`Confirm in walletâ€¦ (${tapQueue} queued)`);
+      setTapHint(`Confirm in wallet (${tapQueue})`);
+
       try {
-        const res = await walletSendCallsTap({ counter: nextCounter });
-        // wallet_sendCalls MUST NOT await finalization (EIP-5792), so we must
-        // wait for wallet_getCallsStatus to confirm inclusion before we update local state.
-        const bundleId = res?.id;
-        if (bundleId) {
-          setTapHint("Pending onchainâ€¦");
-          await waitForCallBundleFinal(await getProvider(), bundleId);
-        } else {
-          // If wallet didn't return an id, wait briefly to avoid rapid nonce conflicts.
-          await sleep(1200);
-        }
+        const submission = await withTimeout(walletSendCallsTap({ counter: nextCounter }), 60000);
+        setTapHint("Pending onchain");
+        await waitForSubmissionFinal(await getProvider(), submission);
 
         localStorage.setItem("tapCounter", String(nextCounter));
-
-        // Only after confirmed inclusion do we add 1 Pata.
         pata += 1;
         store.setPata(pata);
         updateHud();
+        tapQueue -= 1;
       } catch (e) {
         const msg = String(e?.message || e || "Transaction failed");
-        if (msg.toLowerCase().includes("user rejected") || msg.toLowerCase().includes("rejected")) {
+        if (isUserRejected(e)) {
           toast("Cancelled");
+          tapQueue = Math.max(0, tapQueue - 1);
         } else if (msg.toLowerCase().includes("insufficient") || msg.toLowerCase().includes("fund")) {
-          toast("Not enough Base ETH for gas (check the connected wallet address)");
+          toast("Not enough Base ETH for gas");
+          tapQueue = 0;
         } else {
           toast(msg);
+          tapQueue = Math.max(0, tapQueue - 1);
         }
       }
-      // Let the wallet UI settle before triggering the next request.
-      await sleep(220);
-      tapQueue -= 1;
+
       setTapHint(tapQueue > 0 ? `Queued taps: ${tapQueue}` : "Tap");
+      if (tapQueue > 0) await sleep(260);
     }
+  } catch (e) {
+    tapQueue = 0;
+    toast(String(e?.message || e || "Wallet connection failed"));
   } finally {
     tapSending = false;
-    setTapHint("Tap");
+    if (tapQueue > 0) void processTapQueue();
+    else setTapHint("Tap");
   }
 }
 
@@ -587,54 +862,53 @@ async function walletSendCallsUsdc({ usdString, recipient }) {
   if (!isHexAddress(USDC_CONTRACT)) throw new Error("Invalid USDC contract");
   if (!isHexAddress(recipient)) throw new Error("Invalid recipient address");
 
-  const provider = await getProvider();
-
-  const accounts = await provider.request({ method: "eth_requestAccounts" });
-  const from = accounts?.[0];
-  if (!from) throw new Error("No account selected");
-
-  const chainId = await ensureBaseMainnet(provider);
+  const { provider, from } = await initWalletSession();
+  await ensureBaseMainnet(provider);
 
   const units = parseUsdcToBaseUnits(usdString);
   const data = encodeErc20Transfer(recipient, units);
+  const reqId = `usdc-${Date.now()}-${Math.random().toString(16).slice(2)}`;
 
   const req = {
     version: "2.0.0",
+    id: reqId,
     from,
-    chainId,
-    // Prefer sequential execution for maximum host compatibility.
+    chainId: BASE_MAINNET_CHAIN_ID,
     atomicRequired: false,
     calls: [{
       to: USDC_CONTRACT,
       value: "0x0",
-      data
+      data,
     }],
     capabilities: {
       dataSuffix: {
         value: builderCodeSuffix,
         optional: true,
-      }
-    }
+      },
+    },
   };
 
-  // EIP-5792
-  return sendCallsWithPaymasterFallback(provider, from, req);
+  return sendCallsOrTransaction(provider, from, req, {
+    to: USDC_CONTRACT,
+    value: "0x0",
+    data,
+  });
 }
 
-// ---------- Tip modal state machine ----------
 const tipState = {
-  status: "idle", // idle | preparing | wallet | sending | done
-  usd: ""
+  status: "idle",
+  usd: "1",
 };
 
 function setTipCta(text, disabled) {
   const btn = document.getElementById("tipCta");
+  if (!btn) return;
   btn.textContent = text;
   btn.disabled = !!disabled;
 }
 
 function setPrepAnim(on) {
-  document.getElementById("prepAnim").classList.toggle("show", !!on);
+  document.getElementById("prepAnim")?.classList.toggle("show", !!on);
 }
 
 function resetTipUi() {
@@ -643,155 +917,143 @@ function resetTipUi() {
   setTipCta("Send USDC", false);
 }
 
-async function runTipFlow(usdString) {
-  tipState.usd = usdString;
+function selectPreset(button) {
+  document.querySelectorAll(".preset").forEach((preset) => preset.classList.toggle("selected", preset === button));
+}
 
-  // Pre-transaction UX: animate 1â€“1.5s BEFORE wallet opens
+function currentUsdValue() {
+  return document.getElementById("customUsd")?.value.trim() || "1";
+}
+
+async function runTipFlow(usdString) {
+  try {
+    parseUsdcToBaseUnits(usdString);
+  } catch (e) {
+    toast(String(e?.message || e));
+    return null;
+  }
+
+  tipState.usd = usdString;
   tipState.status = "preparing";
-  setTipCta("Preparing tipâ€¦", true);
+  setTipCta("Preparing", true);
   setPrepAnim(true);
-  await new Promise((r) => setTimeout(r, 1200));
 
   try {
     tipState.status = "wallet";
     setTipCta("Confirm in wallet", true);
-
-    const res = await walletSendCallsUsdc({ usdString, recipient: TIP_RECIPIENT });
+    const submission = await walletSendCallsUsdc({ usdString, recipient: TIP_RECIPIENT });
 
     tipState.status = "sending";
-    setTipCta("Sendingâ€¦", true);
-
-    // If wallet returns immediately, we still show a short sending state.
-    await new Promise((r) => setTimeout(r, 900));
+    setTipCta("Sending", true);
+    await waitForSubmissionFinal(await getProvider(), submission);
 
     tipState.status = "done";
     setPrepAnim(false);
     setTipCta("Send again", false);
-
-    toast("Tip sent âœ…");
-    return res;
+    toast("Tip sent");
+    return submission;
   } catch (e) {
-    // Handle user rejection / errors gracefully
     setPrepAnim(false);
     resetTipUi();
-
-    const msg = String(e?.message || e || "Transaction failed");
-    if (msg.toLowerCase().includes("user rejected") || msg.toLowerCase().includes("rejected")) {
-      toast("Cancelled");
-    } else {
-      toast(msg);
-    }
-    throw e;
+    if (isUserRejected(e)) toast("Cancelled");
+    else toast(String(e?.message || e || "Transaction failed"));
+    return null;
   }
 }
 
-// ---------- Earn flow ----------
 async function runEarnFlow() {
-  // Fixed 1 USDC
-  setEarnButtonState("Preparingâ€¦", true);
-  // same pre-transaction animation
-  await new Promise((r) => setTimeout(r, 1200));
-
+  setEarnButtonState("Preparing", true);
   try {
+    parseUsdcToBaseUnits("1");
     setEarnButtonState("Confirm in wallet", true);
-    await walletSendCallsUsdc({ usdString: "1", recipient: TIP_RECIPIENT });
-    setEarnButtonState("Earningâ€¦", true);
-    await new Promise((r) => setTimeout(r, 900));
+    const submission = await walletSendCallsUsdc({ usdString: "1", recipient: TIP_RECIPIENT });
+    setEarnButtonState("Earning", true);
+    await waitForSubmissionFinal(await getProvider(), submission);
 
-    // reward
     pata += 10000;
     energy = 100;
     store.setPata(pata);
     store.setEnergy(energy);
     updateHud();
 
-    toast("Earned +10,000 Pata âœ…");
-    setEarnButtonState("Earn with 1 USDC", false);
+    toast("Earned +10,000 Pata");
   } catch (e) {
+    if (isUserRejected(e)) toast("Cancelled");
+    else toast(String(e?.message || e || "Transaction failed"));
+  } finally {
     setEarnButtonState("Earn with 1 USDC", false);
   }
 }
 
 function setEarnButtonState(text, disabled) {
   const btn = document.getElementById("earnBtn");
+  if (!btn) return;
   btn.textContent = text;
   btn.disabled = !!disabled;
 }
 
-// ---------- Boot ----------
 function wireUi() {
   updateHud();
   startEnergyRegen();
   setTapHint("Tap");
+  updateWalletStatus();
 
   const tapArea = document.getElementById("tapArea");
-  // Use Pointer Events only to avoid double-firing (pointerdown + touchstart).
-  tapArea.addEventListener("pointerdown", onTap, { passive: true });
+  tapArea?.addEventListener("pointerdown", onTap, { passive: true });
 
-  document.getElementById("navGame").addEventListener("click", () => {
-    showPanel("game");
-    closeSheet();
-  });
-  document.getElementById("navEarn").addEventListener("click", () => {
-    showPanel("earn");
-    closeSheet();
-  });
-  document.getElementById("navTip").addEventListener("click", () => {
-    showPanel("tip");
-    openSheet();
-  });
-
-  document.getElementById("closeSheet").addEventListener("click", () => {
-    closeSheet();
-    showPanel("game");
-  });
-  document.getElementById("sheetBackdrop").addEventListener("click", (e) => {
-    if (e.target.id === "sheetBackdrop") {
-      closeSheet();
-      showPanel("game");
+  document.getElementById("walletBtn")?.addEventListener("click", async () => {
+    try {
+      await initWalletSession({ forceChoice: true });
+      toast("Wallet connected");
+    } catch (e) {
+      if (!String(e?.message || "").toLowerCase().includes("cancelled")) {
+        toast(String(e?.message || e || "Wallet connection failed"));
+      }
     }
   });
 
-  // presets
-  document.querySelectorAll(".preset").forEach((b) => {
-    b.addEventListener("click", () => {
-      const v = b.getAttribute("data-usd") || "";
-      document.getElementById("customUsd").value = v;
+  document.getElementById("navGame")?.addEventListener("click", () => showPanel("game"));
+  document.getElementById("navEarn")?.addEventListener("click", () => showPanel("earn"));
+  document.getElementById("navTip")?.addEventListener("click", () => showPanel("tip"));
+
+  document.getElementById("closeSheet")?.addEventListener("click", () => showPanel("game"));
+  document.getElementById("sheetBackdrop")?.addEventListener("click", (e) => {
+    if (e.target.id === "sheetBackdrop") showPanel("game");
+  });
+
+  document.querySelectorAll(".preset").forEach((button) => {
+    button.addEventListener("click", () => {
+      const value = button.getAttribute("data-usd") || "1";
+      const input = document.getElementById("customUsd");
+      if (input) input.value = value;
+      selectPreset(button);
       resetTipUi();
     });
   });
 
-  document.getElementById("tipCta").addEventListener("click", async () => {
-    const usd = document.getElementById("customUsd").value.trim();
+  document.getElementById("customUsd")?.addEventListener("input", () => {
+    document.querySelectorAll(".preset").forEach((preset) => preset.classList.remove("selected"));
+    resetTipUi();
+  });
+
+  document.getElementById("tipCta")?.addEventListener("click", async () => {
     if (tipState.status === "done") {
       resetTipUi();
       return;
     }
-    await runTipFlow(usd);
+    await runTipFlow(currentUsdValue());
   });
 
-  document.getElementById("earnBtn").addEventListener("click", async () => {
+  document.getElementById("earnBtn")?.addEventListener("click", async () => {
     await runEarnFlow();
   });
 
-  // init states
   resetTipUi();
   setEarnButtonState("Earn with 1 USDC", false);
   showPanel("game");
 }
 
-async function safeReady() {
-  try {
-    // MUST be called so Mini App splash disappears.
-    await sdk.actions.ready({ disableNativeGestures: false });
-  } catch {
-    // If opened in a browser (not allowed), ignore.
-  }
-}
-
 window.addEventListener("load", async () => {
   await loadRuntimeConfig();
   wireUi();
-  // Call ready as soon as UI is stable.
-  await safeReady();
 });
